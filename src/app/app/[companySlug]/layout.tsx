@@ -6,9 +6,9 @@ import { prisma } from '@/lib/prisma';
 
 interface CompanyLayoutProps {
   children: React.ReactNode;
-  params: {
+  params: Promise<{
     companySlug: string;
-  };
+  }>;
 }
 
 export default async function CompanyLayout({
