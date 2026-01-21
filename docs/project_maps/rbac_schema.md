@@ -6,6 +6,7 @@
 ---
 
 ## Table of Contents
+
 1. [Principi del modello](#1-principi-del-modello-come-ragionare)
 2. [Entità principali (core domain)](#2-entità-principali-core-domain)
 3. [RBAC Schema (tabelle e campi)](#3-rbac-schema-tabelle-e-campi)
@@ -27,12 +28,13 @@
 > Il ruolo da solo non basta: serve sempre lo **scope**.
 
 - **Role** = insieme di permessi (un “pacchetto” di capability)
-- **Permission** = azione atomica *(es. `shift.create`, `request.approve`)*
-- **Scope** = su quali risorse vale *(company / location / department / self)*
+- **Permission** = azione atomica _(es. `shift.create`, `request.approve`)_
+- **Scope** = su quali risorse vale _(company / location / department / self)_
 - **Assignment** = utente X ha ruolo Y in company Z con scope S
 
-**Sintesi:**  
-> *“ALLOW + SCOPE valido”* → autorizzazione.
+**Sintesi:**
+
+> _“ALLOW + SCOPE valido”_ → autorizzazione.
 
 ### 1.2 “Self” come regola speciale
 
@@ -50,10 +52,10 @@ In pratica: **self scope** = regola di ownership, non “ruolo”.
 > Le entità del dominio devono collegarsi al RBAC tramite `companyId` e, quando utile, `locationId/departmentId/employeeId`.
 
 - **Company**
-- **Location** *(belongs to Company)*
-- **Department** *(belongs to Company; opzionalmente legato a Location)*
-- **User** *(account)*
-- **EmployeeProfile** *(opzionale: separazione tra utente e dipendente)*
+- **Location** _(belongs to Company)_
+- **Department** _(belongs to Company; opzionalmente legato a Location)_
+- **User** _(account)_
+- **EmployeeProfile** _(opzionale: separazione tra utente e dipendente)_
 - Risorse operative: **Shift**, **Request**, **Attendance**, **Exchange**, **Announcement**
   - tutte con `companyId`
   - di solito anche `locationId` / `departmentId`
@@ -68,12 +70,13 @@ In pratica: **self scope** = regola di ownership, non “ruolo”.
 ### 3.1 Role
 
 **Role**
+
 - `id`
-- `companyId` *(NULL se role “global template” — vedi nota)*
-- `key` *(unica per company; es: `OWNER`, `MANAGER`, `SUPERVISOR`, `EMPLOYEE`, o custom)*
-- `name` *(es. “Manager Sede”)*
+- `companyId` _(NULL se role “global template” — vedi nota)_
+- `key` _(unica per company; es: `OWNER`, `MANAGER`, `SUPERVISOR`, `EMPLOYEE`, o custom)_
+- `name` _(es. “Manager Sede”)_
 - `description`
-- `isSystem` *(bool: true per ruoli base non eliminabili)*
+- `isSystem` _(bool: true per ruoli base non eliminabili)_
 - `createdAt`, `updatedAt`
 
 **Opzione template:** ruoli “globali” (senza `companyId`) come **template** copiati alla creazione di una nuova company.
@@ -81,19 +84,21 @@ In pratica: **self scope** = regola di ownership, non “ruolo”.
 ### 3.2 Permission (azione)
 
 **Permission**
+
 - `id`
-- `key` *(unica globale; es. `shift.publish`)*
-- `module` *(es. `shift`, `request`, `attendance`)*
+- `key` _(unica globale; es. `shift.publish`)_
+- `module` _(es. `shift`, `request`, `attendance`)_
 - `description`
-- `riskLevel` *(LOW|MEDIUM|HIGH — utile per audit)*
+- `riskLevel` _(LOW|MEDIUM|HIGH — utile per audit)_
 - `createdAt`
 
 ### 3.3 RolePermission (mappa ruolo → permessi)
 
 **RolePermission**
+
 - `roleId`
 - `permissionId`
-- `effect` *(ALLOW|DENY — opzionale ma utile in enterprise)*
+- `effect` _(ALLOW|DENY — opzionale ma utile in enterprise)_
 - `createdAt`
 
 **Nota semplificazione:** puoi partire con **solo ALLOW**.
@@ -101,17 +106,19 @@ In pratica: **self scope** = regola di ownership, non “ruolo”.
 ### 3.4 ScopeAssignment (assegnazione ruolo a utente con scope)
 
 **UserRoleAssignment**
+
 - `id`
 - `companyId`
 - `userId`
 - `roleId`
-- `scopeType` *(COMPANY|LOCATION|DEPARTMENT|SELF)*
-- `scopeId` *(nullable; se COMPANY → null; se SELF → null; se LOCATION/DEPARTMENT → id relativo)*
-- `isActive` *(bool)*
-- `startsAt`, `endsAt` *(opzionale: ruoli temporanei)*
+- `scopeType` _(COMPANY|LOCATION|DEPARTMENT|SELF)_
+- `scopeId` _(nullable; se COMPANY → null; se SELF → null; se LOCATION/DEPARTMENT → id relativo)_
+- `isActive` _(bool)_
+- `startsAt`, `endsAt` _(opzionale: ruoli temporanei)_
 - `createdAt`, `updatedAt`
 
 **Esempi**
+
 - Manager globale: `scopeType=COMPANY`
 - Manager solo sede Bologna: `scopeType=LOCATION`, `scopeId=loc_bologna`
 - Supervisor reparto cucina: `scopeType=DEPARTMENT`, `scopeId=dep_cucina`
@@ -121,26 +128,28 @@ In pratica: **self scope** = regola di ownership, non “ruolo”.
 
 ### 3.5 UserCompanyMembership (membership / tenant)
 
-Serve per la domanda: *“questo utente appartiene a questa azienda?”* anche se non ha ruoli.
+Serve per la domanda: _“questo utente appartiene a questa azienda?”_ anche se non ha ruoli.
 
 **CompanyMember**
+
 - `companyId`
 - `userId`
-- `status` *(ACTIVE|SUSPENDED|LEFT)*
-- `defaultLocationId` *(nullable)*
-- `defaultDepartmentId` *(nullable)*
+- `status` _(ACTIVE|SUSPENDED|LEFT)_
+- `defaultLocationId` _(nullable)_
+- `defaultDepartmentId` _(nullable)_
 - `createdAt`, `updatedAt`
 
 ### 3.6 EmployeeProfile (collega user a dipendente)
 
 **EmployeeProfile**
+
 - `id`
 - `companyId`
-- `userId` *(unique per company)*
-- `locationId` *(primary)*
-- `departmentId` *(primary, nullable)*
+- `userId` _(unique per company)_
+- `locationId` _(primary)_
+- `departmentId` _(primary, nullable)_
 - `active`
-- campi HR *(contractType, hourlyRate, ecc.)*
+- campi HR _(contractType, hourlyRate, ecc.)_
 
 ---
 
@@ -151,11 +160,12 @@ Serve per la domanda: *“questo utente appartiene a questa azienda?”* anche s
 Tutte le risorse operative dovrebbero avere sempre questi campi:
 
 - `companyId`
-- `locationId` *(nullable se non serve)*
-- `departmentId` *(nullable)*
-- `employeeId` *(nullable; per self-owned o assegnatario)*
+- `locationId` _(nullable se non serve)_
+- `departmentId` _(nullable)_
+- `employeeId` _(nullable; per self-owned o assegnatario)_
 
 **Esempi**
+
 - **Shift**: `companyId + locationId + departmentId + employeeId (assegnato)`
 - **Request**: `companyId + employeeId + (locationId/departmentId derivati dall’employee)`
 - **Attendance**: `companyId + employeeId + (locationId/departmentId)`
@@ -169,19 +179,19 @@ Tutte le risorse operative dovrebbero avere sempre questi campi:
 
 ### 5.1 Passi di valutazione (ordine consigliato)
 
-1. **Auth**: utente loggato  
-2. **Company membership**: esiste `CompanyMember` con `status=ACTIVE` per `companyId`  
+1. **Auth**: utente loggato
+2. **Company membership**: esiste `CompanyMember` con `status=ACTIVE` per `companyId`
 3. **Permission check**:
    - trova tutte le `UserRoleAssignment` **attive** per `(userId, companyId)`
    - risali a `RolePermission` (ALLOW/DENY) per quei ruoli
    - verifica che `permission.key` richiesta sia presente con effetto valido
-4. **Scope check** *(il cuore)*:
+4. **Scope check** _(il cuore)_:
    - `scopeType=COMPANY` → ok su tutte le risorse della company
    - `scopeType=LOCATION` → ok solo se `resource.locationId == scopeId`
    - `scopeType=DEPARTMENT` → ok solo se `resource.departmentId == scopeId`
    - `scopeType=SELF` → ok solo se `resource.employeeId == myEmployeeId`
 5. **Ownership override / self-only**:
-   - alcune permission sono *self-only* per definizione *(es. `availability.setForSelf`)*
+   - alcune permission sono _self-only_ per definizione _(es. `availability.setForSelf`)_
 6. **Rule & Compliance (business rules, non RBAC)**:
    - conflitti, riposi, limiti ore… (motore regole)
 7. **Audit**:
@@ -202,14 +212,15 @@ Se un utente ha più ruoli/assignment attivi, regole consigliate:
 
 Crea 4 ruoli system per company:
 
-- **OWNER** *(scope COMPANY)*
-- **MANAGER** *(scope COMPANY o LOCATION)*
-- **SUPERVISOR** *(scope DEPARTMENT o LOCATION)*
-- **EMPLOYEE** *(scope SELF)*
+- **OWNER** _(scope COMPANY)_
+- **MANAGER** _(scope COMPANY o LOCATION)_
+- **SUPERVISOR** _(scope DEPARTMENT o LOCATION)_
+- **EMPLOYEE** _(scope SELF)_
 
 Poi ruoli custom opzionali:
-- `MANAGER_HR` *(requests + employees, ma non `schedule.publish`)*
-- `PAYROLL_VIEWER` *(solo report/export)*
+
+- `MANAGER_HR` _(requests + employees, ma non `schedule.publish`)_
+- `PAYROLL_VIEWER` _(solo report/export)_
 
 ---
 
@@ -218,11 +229,13 @@ Poi ruoli custom opzionali:
 Non obbligatorio, ma molto comodo per UI “Admin → Permessi”.
 
 **PermissionGroup**
+
 - `id`
-- `key` *(es. `SCHEDULING`, `REQUESTS`, `ATTENDANCE`)*
+- `key` _(es. `SCHEDULING`, `REQUESTS`, `ATTENDANCE`)_
 - `name`
 
 **PermissionGroupItem**
+
 - `groupId`
 - `permissionId`
 
@@ -233,15 +246,16 @@ Non obbligatorio, ma molto comodo per UI “Admin → Permessi”.
 ## 8) Audit schema (fortemente consigliato)
 
 **AuditLog**
+
 - `id`
 - `companyId`
 - `actorUserId`
-- `actionKey` *(es. `shift.publish`)*
-- `entityType` *(Shift/Request/Attendance/…)*
-- `entityId` *(publicId o db id)*
-- `before` *(JSON, opzionale)*
-- `after` *(JSON, opzionale)*
-- `metadata` *(JSON: ip, userAgent, reason, override=true, scope…)*
+- `actionKey` _(es. `shift.publish`)_
+- `entityType` _(Shift/Request/Attendance/…)_
+- `entityId` _(publicId o db id)_
+- `before` _(JSON, opzionale)_
+- `after` _(JSON, opzionale)_
+- `metadata` _(JSON: ip, userAgent, reason, override=true, scope…)_
 - `createdAt`
 
 **Regola:** qualsiasi azione “rischiosa” deve avere `metadata.reason` **obbligatorio**.
@@ -251,16 +265,19 @@ Non obbligatorio, ma molto comodo per UI “Admin → Permessi”.
 ## 9) Esempi concreti di assegnazione (per capire che funziona)
 
 ### Caso A: Manager di sede Bologna
+
 - `UserRoleAssignment`: `role=MANAGER`, `scopeType=LOCATION`, `scopeId=loc_bologna`
 - Permessi: `shift.*`, `request.approve`, `attendance.*`, `report.export*`
 - **Risultato:** gestisce tutto ma solo su `loc_bologna`.
 
 ### Caso B: Supervisor Cucina
+
 - `UserRoleAssignment`: `role=SUPERVISOR`, `scopeType=DEPARTMENT`, `scopeId=dep_cucina`
 - Permessi: `attendance.markPresent`, `shift.viewAll`, `shift.addNotes`
 - **Risultato:** vede turni cucina, segna presenze, non pubblica turni.
 
 ### Caso C: Dipendente
+
 - `UserRoleAssignment`: `role=EMPLOYEE`, `scopeType=SELF`
 - Permessi: `shift.viewSelf`, `availability.setForSelf`, `request.createSelf`, `attendance.checkInSelf`
 - **Risultato:** self-only pulito.
@@ -274,6 +291,6 @@ Se vuoi partire robusto senza overkill, minimo sindacale:
 - **Role**
 - **Permission**
 - **RolePermission**
-- **UserRoleAssignment** *(con `scopeType` + `scopeId`)*
+- **UserRoleAssignment** _(con `scopeType` + `scopeId`)_
 - **CompanyMember**
 - **AuditLog**
