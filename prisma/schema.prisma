@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ----------------------------------------------------------------------
+// 1. Core Domain (Multi-Tenant)
+// ----------------------------------------------------------------------
+
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locations        Location[]
+  departments      Department[]
+  members          CompanyMember[]
+  roles            Role[]
+  assignments      UserRoleAssignment[]
+  auditLogs        AuditLog[]
+  shifts           Shift[]
+  employeeProfiles EmployeeProfile[]
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  companyId String
+  name      String
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  departments     Department[]
+  companyMembers  CompanyMember[] // Default location for member
+  employeeProfile EmployeeProfile[]
+  shifts          Shift[]
+  // Add other resource relations here
+}
+
+model Department {
+  id         String  @id @default(uuid())
+  companyId  String
+  locationId String? // Optional: Departments can be global or location-specific
+  name       String
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location  Location? @relation(fields: [locationId], references: [id])
+  
+  companyMembers  CompanyMember[] // Default department for member
+  employeeProfile EmployeeProfile[]
+  shifts          Shift[]
+}
+
+model User {
+  id        String   @id @default(uuid()) // Auth provider ID (e.g. Clerk/Supabase) or internal UUID
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships CompanyMember[]
+  assignments UserRoleAssignment[]
+}
+
+model CompanyMember {
+  id        String   @id @default(uuid())
+  companyId String
+  userId    String
+  status    String   @default("ACTIVE") // ACTIVE, SUSPENDED, LEFT
+  
+  defaultLocationId   String?
+  defaultDepartmentId String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company           Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultLocation   Location?   @relation(fields: [defaultLocationId], references: [id])
+  defaultDepartment Department? @relation(fields: [defaultDepartmentId], references: [id])
+  
+  employeeProfile   EmployeeProfile?
+
+  @@unique([companyId, userId])
+}
+
+model EmployeeProfile {
+  id              String   @id @default(uuid())
+  companyMemberId String   @unique // One profile per membership (company-user pair)
+  
+  // Denormalized/Convenience fields (source of truth for operational scope)
+  companyId    String
+  locationId   String
+  departmentId String?
+
+  active       Boolean @default(true)
+  // Add HR fields: contractType, hourlyRate, etc.
+
+  companyMember CompanyMember @relation(fields: [companyMemberId], references: [id], onDelete: Cascade)
+  company       Company?      @relation(fields: [companyId], references: [id]) // Optional relation for prisma, but logic enforces match
+  location      Location      @relation(fields: [locationId], references: [id])
+  department    Department?   @relation(fields: [departmentId], references: [id])
+
+  shifts Shift[] // Shifts assigned to this employee
+}
+
+// ----------------------------------------------------------------------
+// 2. RBAC Schema
+// ----------------------------------------------------------------------
+
+model Role {
+  id          String   @id @default(uuid())
+  companyId   String?  // NULL if System Global Role (Template)
+  key         String   // OWNER, MANAGER, etc. Unique per company (or global)
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  assignments UserRoleAssignment[]
+
+  @@unique([companyId, key]) // Role key unique within a company (NULL companyId handled separately by app logic or DB constraint if supported)
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique // shift.create, request.approve
+  module      String   // shift, request
+  description String?
+  riskLevel   String   @default("LOW") // LOW, MEDIUM, HIGH
+  createdAt   DateTime @default(now())
+
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  id           String @id @default(uuid())
+  roleId       String
+  permissionId String
+  effect       String @default("ALLOW") // ALLOW, DENY
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+model UserRoleAssignment {
+  id        String   @id @default(uuid())
+  companyId String
+  userId    String
+  roleId    String
+  
+  scopeType String   // COMPANY, LOCATION, DEPARTMENT, SELF
+  scopeId   String?  // ID of the location/department. NULL if COMPANY/SELF.
+  
+  isActive  Boolean   @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+}
+
+// ----------------------------------------------------------------------
+// 3. Operational Resources
+// ----------------------------------------------------------------------
+
+model Shift {
+  id        String   @id @default(uuid())
+  companyId String
+  locationId   String
+  departmentId String?
+  employeeId   String? // Nullable if Open Shift
+
+  startTime DateTime
+  endTime   DateTime
+  note      String?
+  status    String   @default("DRAFT") // DRAFT, PUBLISHED
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location   @relation(fields: [locationId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  employee   EmployeeProfile? @relation(fields: [employeeId], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  companyId   String
+  actorUserId String
+  actionKey   String
+  entityType  String
+  entityId    String
+  metadata    Json?    // reason, scope, differences
+  createdAt   DateTime @default(now())
+  
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
