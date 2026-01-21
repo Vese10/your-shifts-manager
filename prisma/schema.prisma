@@ -13,6 +13,7 @@ datasource db {
 model Company {
   id        String   @id @default(uuid())
   name      String
+  slug      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -71,7 +72,7 @@ model CompanyMember {
   id        String   @id @default(uuid())
   companyId String
   userId    String
-  status    String   @default("ACTIVE") // ACTIVE, SUSPENDED, LEFT
+  status    CompanyMemberStatus   @default(ACTIVE)
   
   defaultLocationId   String?
   defaultDepartmentId String?
@@ -87,6 +88,12 @@ model CompanyMember {
   employeeProfile   EmployeeProfile?
 
   @@unique([companyId, userId])
+}
+
+enum CompanyMemberStatus {
+  ACTIVE
+  SUSPENDED
+  LEFT
 }
 
 model EmployeeProfile {

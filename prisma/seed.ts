@@ -1,92 +1,238 @@
-import { PrismaClient } from '@prisma/client';
+import 'dotenv/config';
+import { prisma } from '../src/lib/prisma';
 
-const prisma = new PrismaClient();
+import { PERMISSIONS, HIGH_RISK_PERMISSIONS } from '../src/lib/rbac';
 
-async function main() {
-  console.log('Seeding database...');
+// --- HELPERS ---
 
-  // 1. Create System Permissions
-  const permissions = [
-    // Shifts
-    { key: 'shift.viewAll', module: 'shift', description: 'View all shifts' },
-    { key: 'shift.viewSelf', module: 'shift', description: 'View own shifts' },
-    { key: 'shift.create', module: 'shift', description: 'Create new shifts' },
-    {
-      key: 'shift.publish',
-      module: 'shift',
-      description: 'Publish shifts',
-      riskLevel: 'MEDIUM',
-    },
-    {
-      key: 'shift.delete',
-      module: 'shift',
-      description: 'Delete shifts',
-      riskLevel: 'HIGH',
-    },
+// Map of Role Key -> List of Permissions (or rules to filter them)
+// For simplicity in this seed, we'll define explicit lists or huge filters.
+// OWNER: All permissions.
+const getOwnerPermissions = () => Object.values(PERMISSIONS);
 
-    // Requests
-    {
-      key: 'request.createSelf',
-      module: 'request',
-      description: 'Create request for self',
-    },
-    {
-      key: 'request.approve',
-      module: 'request',
-      description: 'Approve requests',
-      riskLevel: 'MEDIUM',
-    },
-
-    // Attendance
-    {
-      key: 'attendance.checkInSelf',
-      module: 'attendance',
-      description: 'Check-in for self',
-    },
-    {
-      key: 'attendance.viewAll',
-      module: 'attendance',
-      description: 'View all attendance records',
-    },
+// MANAGER: Operational (Scheduling, Requests, Attendance, Reports, Employee mgmt)
+// Exclude: Billing, Integrations, Company Settings (except name/branding view), Audit, GDPR, high level Policy overrides.
+const getManagerPermissions = () => {
+  const all = Object.values(PERMISSIONS);
+  const EXCLUDED_PREFIXES = [
+    'company.update',
+    'company.manage', // Keep company.view
+    'location.create',
+    'location.delete', // Manager usually edits, maybe not create/delete locations? Spec says OWNER/ADMIN.
+    'department.create',
+    'department.delete',
+    'user.delete',
+    'user.import',
+    'role.',
+    'permission.',
+    'audit.',
+    'data.',
+    'gdpr.',
+    'integration.',
+    'policy.update',
+    'policy.set', // View ok
+    'support.impersonate',
   ];
 
-  for (const p of permissions) {
+  return all.filter(
+    (p) => !EXCLUDED_PREFIXES.some((prefix) => p.startsWith(prefix))
+  );
+};
+
+// SUPERVISOR: Day to day
+const getSupervisorPermissions = () => [
+  PERMISSIONS.SHIFT_VIEW_ALL,
+  PERMISSIONS.SHIFT_VIEW_NOTES,
+  PERMISSIONS.SHIFT_ADD_NOTES,
+  PERMISSIONS.ATTENDANCE_VIEW_ALL,
+  PERMISSIONS.ATTENDANCE_MARK_PRESENT,
+  PERMISSIONS.ATTENDANCE_MARK_ABSENT,
+  PERMISSIONS.ATTENDANCE_MARK_LATE,
+  PERMISSIONS.USER_VIEW,
+  PERMISSIONS.EMPLOYEE_VIEW,
+  PERMISSIONS.ANNOUNCEMENT_VIEW,
+  PERMISSIONS.ANNOUNCEMENT_CREATE, // Optional in map
+  PERMISSIONS.COVERAGE_VIEW,
+  PERMISSIONS.REPORT_VIEW, // Subset
+];
+
+// EMPLOYEE: Self
+const getEmployeePermissions = () =>
+  Object.values(PERMISSIONS).filter(
+    (p) =>
+      p.includes('Self') ||
+      p.includes('Me') ||
+      p === PERMISSIONS.ANNOUNCEMENT_VIEW ||
+      p === PERMISSIONS.SHIFT_VIEW_SELF
+  );
+
+async function main() {
+  console.log('Seeding...');
+
+  // 1. Seed Permissions
+  console.log('Seeding Permissions...');
+  const allPermissions = Object.values(PERMISSIONS);
+
+  for (const permKey of allPermissions) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const isHighRisk = HIGH_RISK_PERMISSIONS.includes(permKey as any);
+    const permModule = permKey.split('.')[0];
+
     await prisma.permission.upsert({
-      where: { key: p.key },
-      update: {},
-      create: p,
+      where: { key: permKey },
+      update: {
+        riskLevel: isHighRisk ? 'HIGH' : 'LOW',
+        module: permModule,
+      },
+      create: {
+        key: permKey,
+        module: permModule,
+        riskLevel: isHighRisk ? 'HIGH' : 'LOW',
+        description: `Permission for ${permKey}`,
+      },
     });
   }
 
-  // 2. Create Global System Role Templates (companyId: null)
-  // Note: Your schema uses companyId as optional, so null implies a global template or system role.
+  // 2. Setup Company & User (Demo)
+  const userEmail = 'demo@example.com';
+  const companySlug = 'demo-company';
 
-  // OWNER
-  const ownerRole = await prisma.role.upsert({
-    where: { companyId_key: { companyId: 'SYSTEM_TEMPLATE', key: 'OWNER' } }, // specialized ID or composite unique handling needed if companyId is nullable unique constraint issue
-    // Actually, unique([companyId, key]) allows multiple nulls in standard SQL but Prisma logic might vary.
-    // For safety, let's assume we create them when a company is created or just have a reference list here.
-    // Spec says: "Crea 4 ruoli system PER COMPANY". Meaning we seed them when we create a company.
-    // But we can store "Templates" here if we want.
-    // Let's CREATE A DEMO COMPANY and seed its roles to verify the structures.
+  const user = await prisma.user.upsert({
+    where: { email: userEmail },
     update: {},
     create: {
-      companyId: 'SYSTEM_TEMPLATE', // Hack to satisfy composite unique if null is tricky or just use a placeholder
-      key: 'OWNER',
-      name: 'Owner (Template)',
-      isSystem: true,
+      email: userEmail,
+      name: 'Demo User',
+      id: 'user_demo_id',
     },
   });
 
-  console.log('Seed completed.');
+  const company = await prisma.company.upsert({
+    where: { slug: companySlug },
+    update: {},
+    create: {
+      name: 'Demo Company',
+      slug: companySlug,
+    },
+  });
+
+  // 3. Create System Roles (Global Templates - companyId: null)
+  // We'll create them as templates. Alternatively, we can create them FOR the demo company.
+  // The specs mention "preset ruoli system". Let's create them for the Demo Company for now to be concrete.
+
+  const ROLES_DEF = [
+    { key: 'OWNER', name: 'Owner', perms: getOwnerPermissions() },
+    { key: 'MANAGER', name: 'Manager', perms: getManagerPermissions() },
+    {
+      key: 'SUPERVISOR',
+      name: 'Supervisor',
+      perms: getSupervisorPermissions(),
+    },
+    { key: 'EMPLOYEE', name: 'Employee', perms: getEmployeePermissions() },
+  ];
+
+  for (const roleDef of ROLES_DEF) {
+    console.log(`Seeding Role: ${roleDef.key}`);
+    const role = await prisma.role.upsert({
+      where: {
+        companyId_key: {
+          companyId: company.id,
+          key: roleDef.key,
+        },
+      },
+      update: {},
+      create: {
+        companyId: company.id,
+        key: roleDef.key,
+        name: roleDef.name,
+        isSystem: true,
+        description: `System Role: ${roleDef.name}`,
+      },
+    });
+
+    // Assign Permissions to Role
+    // We'll do a bulk delete/create or just upsert loop.
+    // Optimization: fetch existing, calc diff. For seed, loop upsert is 'safe' but slow.
+    // Given we have ~100 perms, let's just do it.
+
+    // First, map permission keys to IDs
+    const permKeys = roleDef.perms;
+    const permissions = await prisma.permission.findMany({
+      where: { key: { in: permKeys } },
+      select: { id: true, key: true },
+    });
+
+    for (const p of permissions) {
+      await prisma.rolePermission.upsert({
+        where: {
+          roleId_permissionId: {
+            roleId: role.id,
+            permissionId: p.id,
+          },
+        },
+        update: {},
+        create: {
+          roleId: role.id,
+          permissionId: p.id,
+          effect: 'ALLOW',
+        },
+      });
+    }
+  }
+
+  // 4. Create Membership & Assignment
+  await prisma.companyMember.upsert({
+    where: {
+      companyId_userId: {
+        companyId: company.id,
+        userId: user.id,
+      },
+    },
+    update: {
+      status: 'ACTIVE',
+    },
+    create: {
+      companyId: company.id,
+      userId: user.id,
+      status: 'ACTIVE',
+    },
+  });
+
+  // Assign OWNER role to Demo User
+  // Check if assignment exists
+  const ownerRole = await prisma.role.findUnique({
+    where: { companyId_key: { companyId: company.id, key: 'OWNER' } },
+  });
+
+  if (ownerRole) {
+    await prisma.userRoleAssignment.upsert({
+      where: {
+        // We don't have a unique constraint on assignment per se (schema says ID),
+        // but effectively we probably want one role per scope?
+        // Schema: assignments UserRoleAssignment[]
+        // We'll search first or just create if not exists.
+        id: 'demo_owner_assignment', // Hacking a static ID for upsert stability in seed
+      },
+      update: {},
+      create: {
+        id: 'demo_owner_assignment',
+        companyId: company.id,
+        userId: user.id,
+        roleId: ownerRole.id,
+        scopeType: 'COMPANY',
+        isActive: true,
+      },
+    });
+  }
+
+  console.log('Seeding finished.');
 }
 
 main()
-  .then(async () => {
-    await prisma.$disconnect();
-  })
-  .catch(async (e) => {
+  .catch((e) => {
     console.error(e);
-    await prisma.$disconnect();
     process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
   });
